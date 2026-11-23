@@ -5,8 +5,14 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <meta name="theme-color" content="#0b1014" />
   <meta name="referrer" content="strict-origin-when-cross-origin" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <meta name="apple-mobile-web-app-title" content="RotinaFit" />
   <meta name="description" content="RotinaFit — monte uma rotina de academia personalizada, explore exercícios e acompanhe seu progresso." />
   <title>RotinaFit — Seu treino, do seu jeito</title>
+  <link rel="manifest" href="manifest.webmanifest" />
+  <link rel="apple-touch-icon" href="icons/icon-192.png" />
+  <link rel="icon" type="image/png" sizes="512x512" href="icons/icon-512.png" />
   <link rel="stylesheet" href="css/styles.css" />
 </head>
 <body>
@@ -32,6 +38,11 @@
     <symbol id="i-list" viewBox="0 0 24 24"><path d="M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01"/></symbol>
     <symbol id="i-up" viewBox="0 0 24 24"><path d="m6 15 6-6 6 6"/></symbol>
     <symbol id="i-down" viewBox="0 0 24 24"><path d="m6 9 6 6 6-6"/></symbol>
+    <symbol id="i-download" viewBox="0 0 24 24"><path d="M12 3v12M7.5 10.5 12 15l4.5-4.5M4 19h16"/></symbol>
+    <symbol id="i-upload" viewBox="0 0 24 24"><path d="M12 15V3M7.5 7.5 12 3l4.5 4.5M4 19h16"/></symbol>
+    <symbol id="i-edit" viewBox="0 0 24 24"><path d="M4 20h4L19 9l-4-4L4 16v4Z"/><path d="m14 6 4 4"/></symbol>
+    <symbol id="i-bell" viewBox="0 0 24 24"><path d="M18 16v-5a6 6 0 0 0-12 0v5l-2 3h16l-2-3ZM10 22h4"/></symbol>
+    <symbol id="i-weight" viewBox="0 0 24 24"><path d="M6 8h12l2 12H4L6 8Z"/><circle cx="12" cy="5" r="2"/></symbol>
   </svg>
 
   <div class="app-shell">
@@ -51,6 +62,10 @@
       </nav>
 
       <div class="sidebar-foot">
+        <div class="sidebar-tools">
+          <button class="btn btn-ghost btn-sm btn-block" id="btn-backup-side"><svg class="icon"><use href="#i-download"></use></svg> Backup dos dados</button>
+          <button class="btn btn-primary btn-sm btn-block" id="btn-install-side" data-install-app hidden><svg class="icon"><use href="#i-download"></use></svg> Instalar app</button>
+        </div>
         <div class="tip-card">
           <span class="tip-icon"><svg class="icon"><use href="#i-fire"></use></svg></span>
           <p><strong>Dica do dia</strong><br />Descanso também é treino. Durma bem e mantenha a constância.</p>
@@ -245,6 +260,19 @@
             <div class="panel-heading"><div><h3>Últimos 7 dias</h3><p>Treinos concluídos por dia</p></div><span class="chart-legend"><i></i> treinos</span></div>
             <div class="chart" id="week-chart"></div>
           </div>
+          <div class="panel evolution-panel" id="evolution-panel" hidden>
+            <div class="panel-heading"><div><h3>Evolução de carga</h3><p>Compare o peso usado em cada exercício ao longo dos treinos.</p></div><span class="chart-legend"><i></i> kg</span></div>
+            <div id="evolution-content"></div>
+          </div>
+          <div class="panel backup-panel">
+            <div class="panel-heading"><div><h3>Backup dos dados</h3><p>Salve rotina, playlist, histórico e preferências em um arquivo.</p></div></div>
+            <div class="backup-actions">
+              <button class="btn btn-primary btn-sm" id="btn-export"><svg class="icon"><use href="#i-download"></use></svg> Exportar backup</button>
+              <button class="btn btn-ghost btn-sm" id="btn-import"><svg class="icon"><use href="#i-upload"></use></svg> Importar backup</button>
+              <button class="btn btn-ghost btn-sm" id="btn-install" data-install-app hidden><svg class="icon"><use href="#i-download"></use></svg> Instalar app</button>
+            </div>
+            <p class="backup-note">Importar substitui os dados atuais deste navegador. Guarde o arquivo em um lugar seguro.</p>
+          </div>
           <div class="panel history-panel">
             <div class="panel-heading"><div><h3>Histórico</h3><p>Seus treinos finalizados</p></div></div>
             <div id="history-list"></div>
@@ -271,7 +299,11 @@
               <div class="timer-presets" id="timer-presets">
                 <button data-sec="45">45s</button><button data-sec="60">1min</button><button data-sec="90">1:30</button>
               </div>
-              <p class="timer-hint">Dica: marque a série e inicie o descanso.</p>
+              <div class="alert-options">
+                <label><input type="checkbox" id="alert-sound" checked /> Som</label>
+                <label><input type="checkbox" id="alert-vibration" checked /> Vibração</label>
+              </div>
+              <p class="timer-hint">Dica: marque a série, registre a carga e inicie o descanso.</p>
             </aside>
           </div>
           <div class="finish-bar"><button class="btn btn-primary btn-lg" id="btn-finalizar">Finalizar treino <svg class="icon"><use href="#i-check"></use></svg></button></div>
@@ -297,6 +329,7 @@
   </div>
 
   <div class="toast-root" id="toast-root" aria-live="polite"></div>
+  <input type="file" id="import-file" accept="application/json,.json" hidden />
 
   <script src="js/data.js"></script>
   <script src="js/app.js"></script>

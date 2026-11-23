@@ -1,6 +1,6 @@
 # RotinaFit
 
-App web de academia para quem precisa de uma rotina de treinos pronta e personalizada. Funciona **offline**, sem cadastro e sem dependências. Para usar os vídeos embutidos, abra com o arquivo `Iniciar.bat`; abrir o `index.html` direto também funciona, mas os vídeos são abertos no YouTube.
+App web de academia para quem precisa de uma rotina de treinos pronta e personalizada. Funciona **offline** (via service worker), sem cadastro e sem dependências. Pode ser instalado na tela inicial do celular como **PWA**. Para usar os vídeos embutidos, abra com o arquivo `Iniciar.bat` ou pelo endereço publicado; abrir o `index.html` direto também funciona, mas os vídeos são abertos no YouTube.
 
 ## O que faz
 
@@ -11,8 +11,11 @@ App web de academia para quem precisa de uma rotina de treinos pronta e personal
 - **Biblioteca com 50+ exercícios**, com busca (ignora acentos), filtros e instruções passo a passo.
 - **Vídeos reais do YouTube** para cada exercício, com player incorporado quando há internet e instruções detalhadas, link e botão para copiar quando não há.
 - **Playlist de treino**: adicione exercícios pela biblioteca, reordene com as setas, ajuste séries/repetições/descanso e inicie um treino só com a sua seleção.
-- **Modo treino**: marcação de séries, progresso em tempo real e cronômetro de descanso com aviso sonoro.
-- **Progresso**: treinos concluídos, minutos, sequência de dias, gráfico semanal e histórico.
+- **Edição da rotina**: troque, remova ou adicione exercícios em qualquer dia do plano gerado.
+- **Modo treino**: marcação de séries, registro de carga (kg) e repetições por série, progresso em tempo real e cronômetro de descanso com aviso **sonoro e/ou vibração** (configurável).
+- **Progresso**: treinos concluídos, minutos, sequência de dias, maior carga, gráfico semanal, evolução de carga por exercício e histórico.
+- **Backup**: exporte e importe rotina, playlist, histórico e preferências em um arquivo JSON.
+- **Offline e PWA**: service worker guarda o app para uso sem internet; manifest + ícone permitem instalar na tela inicial.
 - Tudo salvo no `localStorage` do navegador.
 
 ## Como usar
@@ -20,10 +23,12 @@ App web de academia para quem precisa de uma rotina de treinos pronta e personal
 1. Dê duplo clique em **Iniciar.bat** (Windows). Ele abre o app em `http://localhost:8080` e habilita o player de vídeo. Se preferir, rode `node servidor.js`, `npx serve .` ou `python -m http.server 8080` na pasta do projeto.
 2. Toque em **Montar minha rotina**, responda o formulário e gere o plano.
 3. Em **Exercícios**, toque no cartão de um exercício para assistir ao vídeo e ler as instruções. Use o botão **+** para colocá-lo na playlist. Sem internet — ou se tiver aberto o `index.html` direto — o app mostra um aviso, mantém as instruções e oferece o botão **Abrir no YouTube**.
-4. Em **Minha playlist**, ajuste as séries, repetições e descanso, reordene com as setas e toque em **Iniciar treino**.
-5. Marque as séries, use o cronômetro e finalize para registrar no progresso.
+4. Em **Minha rotina**, use os ícones de cada exercício para trocar ou remover, ou o botão **Adicionar exercício** em cada dia.
+5. Em **Minha playlist**, ajuste as séries, repetições e descanso, reordene com as setas e toque em **Iniciar treino**.
+6. No treino, marque cada série e preencha **kg** e **repetições** para registrar a carga. Use o cronômetro e escolha aviso por som, vibração ou ambos.
+7. Em **Progresso**, acompanhe a evolução de carga por exercício. Use **Exportar backup** para salvar um arquivo e **Importar backup** para restaurá-lo em outro dispositivo.
 
-> Se você abrir `index.html` com duplo clique, todo o app funciona normalmente, mas o YouTube bloqueia o player embutido por não receber o endereço da página (erro 153). Nesse caso, use **Iniciar.bat** ou o botão **Abrir no YouTube**.
+> Se você abrir `index.html` com duplo clique, todo o app funciona normalmente, mas o YouTube bloqueia o player embutido por não receber o endereço da página (erro 153). Nesse caso, use **Iniciar.bat** ou o botão **Abrir no YouTube**. O service worker e a instalação como app exigem um endereço HTTP/HTTPS (não funcionam em `file://`).
 
 ## No celular
 
@@ -36,7 +41,15 @@ O layout é responsivo e funciona no Chrome (Android) e no Safari (iPhone). O ca
 
 Para assistir aos vídeos embutidos, o celular também precisa de internet. Sem internet, o app mantém as instruções e mostra o botão **Abrir no YouTube**.
 
-> Cada dispositivo salva seus dados no próprio navegador: a rotina criada no computador não aparece automaticamente no celular. Para acessar de qualquer lugar, publique a pasta em GitHub Pages, Netlify ou Vercel e use o endereço público no lugar do IP. Se o celular não conectar mesmo na mesma Wi-Fi, verifique se a rede bloqueia a comunicação entre dispositivos (isolamento de cliente/AP).
+> Cada dispositivo salva seus dados no próprio navegador: a rotina criada no computador não aparece automaticamente no celular. Use **Exportar backup** no computador e **Importar backup** no celular. O site publicado em `https://rotinafit-one.vercel.app` funciona de qualquer lugar. Se o celular não conectar na mesma Wi-Fi, verifique se a rede bloqueia a comunicação entre dispositivos (isolamento de cliente/AP).
+
+### Instalar como app (PWA)
+
+No Chrome do Android: abra o site, toque no menu ⋮ e escolha **Instalar app** / **Adicionar à tela inicial**. No iPhone: abra no Safari, toque em **Compartilhar** e depois em **Adicionar à Tela de Início**. Quando o navegador oferecer, o botão **Instalar app** também aparece no app. Depois de instalado, ele abre em tela cheia e continua funcionando offline.
+
+### Funciona offline
+
+Ao abrir o site uma primeira vez com internet, o service worker (`sw.js`) guarda a interface, os estilos, os scripts e o ícone. Depois disso, o app abre e funciona mesmo no modo avião. Os vídeos do YouTube continuam exigindo internet; sem conexão, o app mostra as instruções e o link para abrir depois. Para garantir que tudo foi guardado, deixe a página carregar completamente uma vez antes de ficar offline.
 
 ## Estrutura
 

@@ -11,8 +11,11 @@
   const KEYS = {
     routine: "rotinafit.routine.v1",
     history: "rotinafit.history.v1",
-    playlist: "rotinafit.playlist.v1"
+    playlist: "rotinafit.playlist.v1",
+    settings: "rotinafit.settings.v1"
   };
+
+  const DEFAULT_SETTINGS = { sound: true, vibration: true };
 
   const VIEW_META = {
     inicio: ["SEU ESPAÇO", "Início"],
@@ -28,10 +31,12 @@
     routine: load(KEYS.routine, null),
     history: load(KEYS.history, []),
     playlist: load(KEYS.playlist, []),
+    settings: Object.assign({}, DEFAULT_SETTINGS, load(KEYS.settings, {})),
     active: null,
     view: "inicio",
     library: { q: "", group: "todos", equip: "todos" },
-    timer: { left: 90, running: false, default: 90 }
+    timer: { left: 90, running: false, default: 90 },
+    evolutionExercise: null
   };
 
   /* ------------------------------ Utils ------------------------------ */
@@ -156,6 +161,9 @@
     const minutes = Math.round(state.history.reduce(function (sum, h) { return sum + (h.duracaoSeg || 0); }, 0) / 60);
     const sets = state.history.reduce(function (sum, h) { return sum + (h.series || 0); }, 0);
     const days = new Set(state.history.map(function (h) { return h.date; }));
+    const maxLoad = state.history.reduce(function (max, h) {
+      return (h.registros || []).reduce(function (m, r) { return Math.max(m, Number(r.kg) || 0); }, max);
+    }, 0);
 
     let streak = 0;
     const cursor = new Date();
@@ -176,7 +184,7 @@
         today: i === 0
       });
     }
-    return { total: total, minutes: minutes, sets: sets, streak: streak, last7: last7 };
+    return { total: total, minutes: minutes, sets: sets, streak: streak, maxLoad: maxLoad, last7: last7 };
   }
 
   function statCard(iconName, value, label, tone) {
@@ -285,6 +293,112 @@
     $("#dias-value").textContent = profile.dias;
     $("#split-hint").textContent = D.SPLIT_HINTS[profile.dias] || "";
     $("#observacoes").value = profile.observacoes || "";
+  }
+
+  /* ------------------------------ Edição da rotina ------------------------------ */
+  function exById(id) {
+    return D.EXERCISES.find(function (e) { return e.id === id; });
+  }
+
+  function routineItem(ex, serieLabel, descanso) {
+    return {
+      id: ex.id, nome: ex.nome, grupo: ex.grupo, equipamento: ex.equipamento,
+      serieLabel: serieLabel, descanso: descanso, dica: ex.dica
+    };
+  }
+
+  function saveRoutine() {
+    save(KEYS.routine, state.routine);
+    renderRoutine();
+    renderDashboard();
+  }
+
+  function updateDayDuration(day) {
+    const minutes = 5 + Math.round(day.exercicios.reduce(function (sum, ex) {
+      if (ex.grupo === "cardio") return sum + (parseInt(ex.serieLabel, 10) || 10);
+      const series = Math.max(1, Number(String(ex.serieLabel).split("×")[0]) || 3);
+      return sum + series * 0.6 + (series * (Number(ex.descanso) || 0)) / 60;
+    }, 0));
+    day.duracao = Math.max(15, minutes);
+  }
+
+  function removeRoutineExercise(key) {
+    if (!state.routine) return;
+    const parts = key.split("-").map(Number);
+    const day = state.routine.days[parts[0]];
+    if (!day || !day.exercicios[parts[1]]) return;
+    const name = day.exercicios[parts[1]].nome;
+    confirmDialog("Remover exercício?", "Remover " + name + " deste dia da rotina?", "Remover").then(function (yes) {
+      if (!yes) return;
+      day.exercicios.splice(parts[1], 1);
+      updateDayDuration(day);
+      saveRoutine();
+      toast("Exercício removido da rotina.");
+    });
+  }
+
+  function openExercisePicker(dayIndex, exIndex) {
+    if (!state.routine) return;
+    const day = state.routine.days[dayIndex];
+    if (!day) return;
+    const current = exIndex == null ? null : day.exercicios[exIndex];
+    const pool = D.EXERCISES.filter(function (e) {
+      if (!current) return true;
+      return e.grupo === current.grupo;
+    }).sort(function (a, b) {
+      if (current) {
+        if (a.equipamento === current.equipamento && b.equipamento !== current.equipamento) return -1;
+        if (b.equipamento === current.equipamento && a.equipamento !== current.equipamento) return 1;
+      }
+      return a.nome.localeCompare(b.nome, "pt-BR");
+    });
+
+    let query = "";
+    openModal([
+      '<div class="modal-emoji">' + icon("edit") + "</div>",
+      "<h2>" + (current ? "Trocar exercício" : "Adicionar exercício") + "</h2>",
+      "<p>" + (current
+        ? "Escolha outro exercício para " + esc(current.nome) + "."
+        : "Escolha um exercício para adicionar a " + esc(day.nome) + ".") + "</p>",
+      '<div class="picker-tools"><div class="search-box picker-search">' + icon("search") +
+      '<input type="search" id="picker-search" placeholder="Buscar exercício..." aria-label="Buscar exercício" /></div></div>',
+      '<div class="picker-list" id="picker-list"></div>',
+      '<div class="modal-actions"><button class="btn btn-ghost" data-close-modal="1">Cancelar</button></div>'
+    ].join(""));
+
+    function renderPicker() {
+      const q = norm(query.trim());
+      const list = pool.filter(function (e) { return !q || norm(e.nome).indexOf(q) !== -1; }).slice(0, 60);
+      $("#picker-list").innerHTML = list.length ? list.map(function (e) {
+        return [
+          '<button class="picker-item" data-picker-id="' + esc(e.id) + '">',
+          "<span><strong>" + esc(e.nome) + "</strong><small>" + esc(D.GROUP_LABELS[e.grupo]) + " · " + esc(D.EQUIP_LABELS[e.equipamento]) + "</small></span>",
+          icon("plus") + "</button>"
+        ].join("");
+      }).join("") : '<p class="evo-empty">Nenhum exercício encontrado.</p>';
+    }
+
+    function choose(id) {
+      const ex = exById(id);
+      if (!ex) return;
+      const serieLabel = current ? current.serieLabel : "3 × 10";
+      const descanso = current ? current.descanso : 90;
+      const item = routineItem(ex, serieLabel, descanso);
+      if (current) day.exercicios[exIndex] = item;
+      else day.exercicios.push(item);
+      updateDayDuration(day);
+      saveRoutine();
+      closeModal();
+      toast(current ? "Exercício trocado." : "Exercício adicionado à rotina.");
+    }
+
+    $("#picker-search").addEventListener("input", function () { query = this.value; renderPicker(); });
+    $("#picker-list").addEventListener("click", function (event) {
+      const btn = event.target.closest("[data-picker-id]");
+      if (btn) choose(btn.dataset.pickerId);
+    });
+    renderPicker();
+    $("#picker-search").focus();
   }
 
   /* ------------------------------ Playlist ------------------------------ */
@@ -420,7 +534,7 @@
     const avg = Math.round(state.routine.days.reduce(function (s, d) { return s + d.duracao; }, 0) / state.routine.days.length);
     $("#routine-subtitle").textContent = D.OBJECTIVE_LABELS[p.objetivo] + " · " + D.LEVEL_LABELS[p.nivel] + " · " + p.dias + " dias por semana";
     $("#routine-summary").innerHTML = [
-      '<span class="summary-chip accent"><strong>' + D.SCHEMES[p.objetivo].label + "</strong></span>",
+      '<span class="summary-chip accent"><strong>' + esc((D.SCHEMES[p.objetivo] || {}).label || D.OBJECTIVE_LABELS[p.objetivo] || "Seu plano") + "</strong></span>",
       '<span class="summary-chip">' + p.dias + " treinos/semana</span>",
       '<span class="summary-chip">~' + avg + " min por treino</span>",
       '<span class="summary-chip">' + esc(D.LOCATION_LABELS[p.local]) + "</span>"
@@ -428,15 +542,24 @@
 
     $("#week-grid").innerHTML = state.routine.days.map(function (day, index) {
       const rows = day.exercicios.map(function (ex, exIndex) {
-        return '<div class="ex-row"><span class="ex-row-num">' + (exIndex + 1) + '</span><span class="ex-row-main"><span class="ex-row-name">' + esc(ex.nome) + '</span><span class="ex-row-set">' + esc(ex.serieLabel) + (ex.descanso ? " · " + ex.descanso + "s de descanso" : "") + '</span></span><span class="tag">' + esc(D.GROUP_LABELS[ex.grupo] || ex.grupo) + "</span></div>";
-      }).join("");
+        return [
+          '<div class="ex-row"><span class="ex-row-num">' + (exIndex + 1) + "</span>",
+          '<span class="ex-row-main"><span class="ex-row-name">' + esc(ex.nome) + '</span><span class="ex-row-set">' + esc(ex.serieLabel) + (ex.descanso ? " · " + ex.descanso + "s de descanso" : "") + "</span></span>",
+          '<span class="tag">' + esc(D.GROUP_LABELS[ex.grupo] || ex.grupo) + "</span>",
+          '<span class="day-ex-actions">',
+          '<button class="ex-action" data-ex-change="' + index + "-" + exIndex + '" title="Trocar exercício" aria-label="Trocar exercício">' + icon("edit") + "</button>",
+          '<button class="ex-action danger" data-ex-remove="' + index + "-" + exIndex + '" title="Remover exercício" aria-label="Remover exercício">' + icon("trash") + "</button>",
+          "</span></div>"
+        ].join("");
+      }).join("") || '<p class="evo-empty">Nenhum exercício neste dia. Adicione um abaixo.</p>';
 
       return [
         '<article class="day-card" data-day-card="' + index + '">',
         '<div class="day-card-head"><div><span class="day-index">' + String(index + 1).padStart(2, "0") + "</span><h3>" + esc(day.nome) + '</h3><p class="day-focus">' + esc(day.foco) + '</p><div class="day-meta"><span>' + icon("clock") + " " + day.duracao + ' min</span><span>' + icon("dumbbell") + " " + day.exercicios.length + " exercícios</span></div></div>",
         '<button class="day-toggle" data-toggle-day="' + index + '" aria-label="Expandir treino">' + icon("chevron") + "</button></div>",
         '<div class="day-exercises">' + rows + "</div>",
-        '<div class="day-actions"><button class="btn btn-primary btn-sm" data-start-day="' + index + '">' + icon("play") + " Iniciar este treino</button></div>",
+        '<div class="day-actions"><button class="btn btn-primary btn-sm" data-start-day="' + index + '">' + icon("play") + " Iniciar este treino</button>",
+        '<button class="btn btn-ghost btn-sm" data-ex-add="' + index + '">' + icon("plus") + " Adicionar exercício</button></div>",
         "</article>"
       ].join("");
     }).join("") + (p.observacoes ? '<div class="notes-box"><strong>Lembrete pessoal:</strong> ' + esc(p.observacoes) + "</div>" : "");
@@ -524,7 +647,8 @@
       statCard("check", stats.total, "Treinos concluídos") +
       statCard("clock", stats.minutes, "Minutos treinados", "mint") +
       statCard("fire", stats.streak, "Sequência atual", "orange") +
-      statCard("dumbbell", stats.sets, "Séries realizadas");
+      statCard("dumbbell", stats.sets, "Séries realizadas") +
+      statCard("weight", stats.maxLoad + " kg", "Maior carga", "orange");
 
     const max = Math.max(1, Math.max.apply(null, stats.last7.map(function (d) { return d.count; })));
     $("#week-chart").innerHTML = stats.last7.map(function (day) {
@@ -539,6 +663,65 @@
         '</strong><small>' + formatDateShort(h.date) + ' · ' + h.series + ' de ' + h.total + ' séries</small></div>' +
         '<div class="history-right"><strong>' + mmss(h.duracaoSeg) + '</strong><span>tempo</span></div></div>';
     }).join("") : '<div class="empty-state" style="border:0"><div class="empty-emoji">📊</div><h3>Histórico vazio</h3><p>Finalize seu primeiro treino para ver os resultados aqui.</p></div>';
+
+    renderEvolution();
+  }
+
+  function renderEvolution() {
+    const panel = $("#evolution-panel");
+    if (!panel) return;
+    const entries = [];
+    state.history.forEach(function (h) {
+      (h.registros || []).forEach(function (r) {
+        entries.push({
+          nome: r.nome, serie: r.serie, kg: Number(r.kg) || 0,
+          reps: r.reps || "", date: h.date, timestamp: h.timestamp
+        });
+      });
+    });
+
+    if (!entries.length) {
+      panel.hidden = true;
+      return;
+    }
+    panel.hidden = false;
+
+    const names = Array.from(new Set(entries.map(function (e) { return e.nome; }))).sort(function (a, b) {
+      return a.localeCompare(b, "pt-BR");
+    });
+    if (!state.evolutionExercise || names.indexOf(state.evolutionExercise) === -1) {
+      state.evolutionExercise = names[0];
+    }
+    const selected = state.evolutionExercise;
+    const series = entries.filter(function (e) { return e.nome === selected; })
+      .sort(function (a, b) { return a.timestamp - b.timestamp; });
+    const last = series[series.length - 1];
+    const best = series.reduce(function (m, e) { return e.kg > m.kg ? e : m; }, series[0]);
+    const recent = series.slice(-7);
+    const max = Math.max(1, Math.max.apply(null, recent.map(function (e) { return e.kg; })));
+
+    $("#evolution-content").innerHTML = [
+      '<label class="evolution-select">Exercício',
+      '<select id="evolution-select">' + names.map(function (n) {
+        return '<option value="' + esc(n) + '"' + (n === selected ? " selected" : "") + ">" + esc(n) + "</option>";
+      }).join("") + "</select></label>",
+      '<div class="evo-summary">',
+      "<div><strong>" + last.kg + " kg</strong><span>Última carga · " + formatDateShort(last.date) + " · " + esc(last.reps || "rep") + "</span></div>",
+      "<div><strong>" + best.kg + " kg</strong><span>Recorde · " + formatDateShort(best.date) + "</span></div>",
+      "</div>",
+      '<div class="chart">' + recent.map(function (e, i) {
+        const height = e.kg ? Math.max(12, Math.round((e.kg / max) * 100)) : 3;
+        return '<div class="chart-col' + (i === recent.length - 1 ? " today" : "") + '"><div class="chart-bar-wrap"><div class="chart-bar' + (e.kg ? "" : " zero") + '" style="height:' + height + '%" title="' + e.kg + ' kg"></div></div><span class="chart-label">' + formatDateShort(e.date) + "</span></div>";
+      }).join("") + "</div>",
+      '<div class="evo-log"><strong style="font-size:13px">Registros recentes</strong>' + series.slice().reverse().slice(0, 6).map(function (e) {
+        return '<div class="evo-log-item"><span>' + formatDateShort(e.date) + " · série " + e.serie + " · " + esc(e.reps || "—") + " rep</span><strong>" + e.kg + " kg</strong></div>";
+      }).join("") + "</div>"
+    ].join("");
+
+    $("#evolution-select").addEventListener("change", function () {
+      state.evolutionExercise = this.value;
+      renderEvolution();
+    });
   }
 
   /* ------------------------------ Workout ------------------------------ */
@@ -567,6 +750,7 @@
       startedAt: Date.now(),
       elapsed: 0,
       checks: {},
+      logs: {},
       totalSets: day.exercicios.reduce(function (sum, ex) { return sum + renderedSets(ex); }, 0)
     }, meta);
     state.timer = { left: firstRest, default: firstRest, running: false };
@@ -591,10 +775,18 @@
     $("#workout-exercises").innerHTML = day.exercicios.map(function (ex, exIndex) {
       const count = renderedSets(ex);
       const buttons = [];
+      const repsHint = String(ex.serieLabel).split("×")[1] || "rep";
       for (let i = 0; i < count; i += 1) {
         const key = setKey(exIndex, i);
         const done = Boolean(state.active.checks[key]);
-        buttons.push('<button class="set-btn' + (done ? " done" : "") + '" data-set="' + key + '" aria-label="Série ' + (i + 1) + (done ? " concluída" : "") + '">' + (done ? icon("check") : (i + 1)) + "</button>");
+        const log = state.active.logs[key] || {};
+        buttons.push([
+          '<div class="set-log">',
+          '<button class="set-btn' + (done ? " done" : "") + '" data-set="' + key + '" aria-label="Série ' + (i + 1) + (done ? " concluída" : "") + '">' + (done ? icon("check") : (i + 1)) + "</button>",
+          '<input type="number" inputmode="decimal" min="0" step="0.5" placeholder="kg" value="' + esc(log.kg == null ? "" : log.kg) + '" data-log-kg="' + key + '" aria-label="Carga em kg da série ' + (i + 1) + '" />',
+          '<input type="number" inputmode="numeric" min="0" step="1" placeholder="' + esc(repsHint.trim()) + '" value="' + esc(log.reps == null ? "" : log.reps) + '" data-log-reps="' + key + '" aria-label="Repetições da série ' + (i + 1) + '" />',
+          "</div>"
+        ].join(""));
       }
       return [
         '<article class="workout-ex"><div class="workout-ex-head"><div><h3>' + esc(ex.nome) + "</h3><p>" + esc(ex.serieLabel) + (ex.descanso ? " · descanso " + ex.descanso + "s" : "") + '</p></div><span class="tag">' + esc(D.GROUP_LABELS[ex.grupo]) + "</span></div>",
@@ -654,13 +846,29 @@
       : true;
     if (!proceed) return;
 
+    const day = currentWorkoutDay();
+    const registros = [];
+    if (day) {
+      day.exercicios.forEach(function (ex, exIndex) {
+        for (let i = 0; i < renderedSets(ex); i += 1) {
+          const log = (state.active.logs || {})[setKey(exIndex, i)];
+          if (!log) continue;
+          const kg = Number(log.kg);
+          const reps = String(log.reps || "").trim();
+          if (!Number.isFinite(kg) || kg <= 0) continue;
+          registros.push({ id: ex.id, nome: ex.nome, serie: i + 1, kg: kg, reps: reps });
+        }
+      });
+    }
+
     state.history.push({
       date: dateKey(),
       timestamp: Date.now(),
       dayName: state.active.dayName,
       duracaoSeg: state.active.elapsed,
       series: done,
-      total: total
+      total: total,
+      registros: registros
     });
     save(KEYS.history, state.history);
     state.active = null;
@@ -686,27 +894,44 @@
   }
 
   function toggleTimer() {
+    ensureAudio();
     if (state.timer.left <= 0) state.timer.left = state.timer.default;
     state.timer.running = !state.timer.running;
     updateTimerUI();
   }
 
-  function beep() {
+  let audioCtx = null;
+  function ensureAudio() {
+    if (!state.settings.sound) return;
     try {
       const AudioCtx = window.AudioContext || window.webkitAudioContext;
       if (!AudioCtx) return;
-      const ctx = new AudioCtx();
-      const osc = ctx.createOscillator();
-      const gain = ctx.createGain();
-      osc.type = "sine";
-      osc.frequency.value = 880;
-      gain.gain.setValueAtTime(0.0001, ctx.currentTime);
-      gain.gain.exponentialRampToValueAtTime(0.25, ctx.currentTime + 0.02);
-      gain.gain.exponentialRampToValueAtTime(0.0001, ctx.currentTime + 0.35);
-      osc.connect(gain).connect(ctx.destination);
-      osc.start();
-      osc.stop(ctx.currentTime + 0.36);
+      if (!audioCtx) audioCtx = new AudioCtx();
+      if (audioCtx.state === "suspended") audioCtx.resume();
     } catch (e) { /* áudio é opcional */ }
+  }
+
+  function beep() {
+    if (state.settings.sound) {
+      ensureAudio();
+      try {
+        if (audioCtx) {
+          const osc = audioCtx.createOscillator();
+          const gain = audioCtx.createGain();
+          osc.type = "sine";
+          osc.frequency.value = 880;
+          gain.gain.setValueAtTime(0.0001, audioCtx.currentTime);
+          gain.gain.exponentialRampToValueAtTime(0.25, audioCtx.currentTime + 0.02);
+          gain.gain.exponentialRampToValueAtTime(0.0001, audioCtx.currentTime + 0.35);
+          osc.connect(gain).connect(audioCtx.destination);
+          osc.start();
+          osc.stop(audioCtx.currentTime + 0.36);
+        }
+      } catch (e) { /* áudio é opcional */ }
+    }
+    if (state.settings.vibration && navigator.vibrate) {
+      try { navigator.vibrate([200, 120, 200]); } catch (e) { /* vibração é opcional */ }
+    }
   }
 
   /* ------------------------------ Vídeos do YouTube ------------------------------ */
@@ -822,6 +1047,175 @@
     ].join(""));
   }
 
+  /* ------------------------------ Backup e PWA ------------------------------ */
+  function exportData() {
+    const payload = {
+      app: "RotinaFit",
+      version: 1,
+      exportedAt: new Date().toISOString(),
+      data: {
+        routine: state.routine,
+        history: state.history,
+        playlist: state.playlist,
+        settings: state.settings
+      }
+    };
+    try {
+      const blob = new Blob([JSON.stringify(payload, null, 2)], { type: "application/json" });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = "rotinafit-backup-" + dateKey() + ".json";
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      window.setTimeout(function () { URL.revokeObjectURL(url); }, 1000);
+      toast("Backup exportado! Guarde o arquivo em um lugar seguro.");
+    } catch (e) {
+      toast("Não foi possível exportar o backup.", "error");
+    }
+  }
+
+  function openBackupModal() {
+    openModal([
+      '<div class="modal-emoji">' + icon("download") + "</div>",
+      "<h2>Backup dos dados</h2>",
+      "<p>Exporte um arquivo com sua rotina, playlist, histórico e preferências. Para restaurar, escolha um backup salvo — os dados atuais deste navegador serão substituídos.</p>",
+      '<div class="modal-actions">',
+      '<button class="btn btn-primary" id="backup-export-modal">' + icon("download") + " Exportar arquivo</button>",
+      '<button class="btn btn-ghost" id="backup-import-modal">' + icon("upload") + " Escolher arquivo</button>",
+      "</div>"
+    ].join(""));
+    $("#backup-export-modal").addEventListener("click", function () { closeModal(); exportData(); });
+    $("#backup-import-modal").addEventListener("click", function () { $("#import-file").click(); });
+  }
+
+  function normalizeBackup(data) {
+    let routine = null;
+    if (data.routine && Array.isArray(data.routine.days) && data.routine.days.length && data.routine.profile) {
+      const profile = Object.assign({}, data.routine.profile);
+      if (!D.OBJECTIVE_LABELS[profile.objetivo]) profile.objetivo = "ganhar-massa";
+      if (!D.LEVEL_LABELS[profile.nivel]) profile.nivel = "iniciante";
+      if (!D.LOCATION_LABELS[profile.local]) profile.local = "academia";
+      profile.dias = Math.min(6, Math.max(2, Number(profile.dias) || 3));
+      routine = {
+        profile: profile,
+        days: data.routine.days.map(function (day) {
+          return {
+            nome: String(day.nome || "Treino"),
+            foco: String(day.foco || ""),
+            duracao: Math.max(15, Number(day.duracao) || 45),
+            exercicios: Array.isArray(day.exercicios) ? day.exercicios.map(function (ex) {
+              return {
+                id: String(ex.id || ""), nome: String(ex.nome || "Exercício"),
+                grupo: D.GROUP_LABELS[ex.grupo] ? ex.grupo : "peito",
+                equipamento: String(ex.equipamento || "barra"),
+                serieLabel: String(ex.serieLabel || "3 × 10"),
+                descanso: Math.max(0, Number(ex.descanso) || 0),
+                dica: String(ex.dica || "")
+              };
+            }) : []
+          };
+        })
+      };
+    }
+    const history = (Array.isArray(data.history) ? data.history : []).filter(function (h) {
+      return h && typeof h === "object" && h.date && Number.isFinite(Number(h.timestamp));
+    }).map(function (h) {
+      return {
+        date: String(h.date), timestamp: Number(h.timestamp),
+        dayName: String(h.dayName || "Treino"),
+        duracaoSeg: Math.max(0, Number(h.duracaoSeg) || 0),
+        series: Math.max(0, Number(h.series) || 0),
+        total: Math.max(0, Number(h.total) || 0),
+        registros: Array.isArray(h.registros) ? h.registros.map(function (r) {
+          return {
+            id: String(r.id || ""), nome: String(r.nome || "Exercício"),
+            serie: Math.max(1, Number(r.serie) || 1),
+            kg: Math.max(0, Number(r.kg) || 0),
+            reps: String(r.reps || "")
+          };
+        }) : []
+      };
+    });
+    const playlist = (Array.isArray(data.playlist) ? data.playlist : []).filter(function (item) {
+      return item && typeof item === "object" && item.id;
+    });
+    const settings = Object.assign({}, DEFAULT_SETTINGS, data.settings || {});
+    settings.sound = settings.sound !== false;
+    settings.vibration = settings.vibration !== false;
+    return { routine: routine, history: history, playlist: playlist, settings: settings };
+  }
+
+  function applyBackup(payload) {
+    const data = payload && payload.data;
+    if (!data || typeof data !== "object") throw new Error("Arquivo inválido");
+    const clean = normalizeBackup(data);
+    confirmDialog("Importar backup?", "Isso substitui rotina, playlist, histórico e preferências salvos neste navegador. Continuar?", "Importar").then(function (yes) {
+      if (!yes) return;
+      state.routine = clean.routine;
+      state.history = clean.history;
+      state.playlist = clean.playlist;
+      state.settings = clean.settings;
+      state.active = null;
+      state.evolutionExercise = null;
+      save(KEYS.routine, state.routine);
+      save(KEYS.history, state.history);
+      save(KEYS.playlist, state.playlist);
+      save(KEYS.settings, state.settings);
+      syncSettingsUI();
+      renderAll();
+      showView("inicio");
+      toast("Backup importado com sucesso!");
+    });
+  }
+
+  function importBackup(file) {
+    if (!file) return;
+    if (file.size > 10 * 1024 * 1024) {
+      toast("Arquivo muito grande para um backup.", "error");
+      return;
+    }
+    const reader = new FileReader();
+    reader.onload = function () {
+      try {
+        applyBackup(JSON.parse(String(reader.result)));
+      } catch (e) {
+        toast("Não foi possível ler o backup. Verifique se é um arquivo do RotinaFit.", "error");
+      }
+    };
+    reader.onerror = function () { toast("Não foi possível ler o arquivo.", "error"); };
+    reader.readAsText(file);
+  }
+
+  let installPrompt = null;
+  function updateInstallButtons() {
+    $$("[data-install-app]").forEach(function (btn) { btn.hidden = !installPrompt; });
+  }
+
+  function registerPWA() {
+    if ("serviceWorker" in navigator && /^https?:$/.test(location.protocol)) {
+      navigator.serviceWorker.register("sw.js").catch(function () { /* offline é opcional */ });
+    }
+    window.addEventListener("beforeinstallprompt", function (event) {
+      event.preventDefault();
+      installPrompt = event;
+      updateInstallButtons();
+    });
+    window.addEventListener("appinstalled", function () {
+      installPrompt = null;
+      updateInstallButtons();
+      toast("RotinaFit instalado na tela inicial!");
+    });
+  }
+
+  function syncSettingsUI() {
+    const sound = $("#alert-sound");
+    const vibration = $("#alert-vibration");
+    if (sound) sound.checked = state.settings.sound !== false;
+    if (vibration) vibration.checked = state.settings.vibration !== false;
+  }
+
   /* ------------------------------ Eventos ------------------------------ */
   function bindEvents() {
     document.addEventListener("click", function (event) {
@@ -880,9 +1274,23 @@
 
       const preset = event.target.closest("[data-sec]");
       if (preset) {
+        ensureAudio();
         state.timer = { left: Number(preset.dataset.sec), default: Number(preset.dataset.sec), running: false };
         updateTimerUI();
       }
+
+      const exChange = event.target.closest("[data-ex-change]");
+      if (exChange) {
+        const parts = exChange.dataset.exChange.split("-").map(Number);
+        openExercisePicker(parts[0], parts[1]);
+        return;
+      }
+
+      const exRemove = event.target.closest("[data-ex-remove]");
+      if (exRemove) { removeRoutineExercise(exRemove.dataset.exRemove); return; }
+
+      const exAdd = event.target.closest("[data-ex-add]");
+      if (exAdd) { openExercisePicker(Number(exAdd.dataset.exAdd), null); return; }
     });
 
     $("#routine-form").addEventListener("submit", function (event) {
@@ -940,6 +1348,17 @@
       renderPlaylist();
     });
 
+    $("#workout-exercises").addEventListener("change", function (event) {
+      if (!state.active) return;
+      const field = event.target.closest("[data-log-kg], [data-log-reps]");
+      if (!field) return;
+      const key = field.dataset.logKg != null ? field.dataset.logKg : field.dataset.logReps;
+      const prop = field.dataset.logKg != null ? "kg" : "reps";
+      if (!state.active.logs) state.active.logs = {};
+      const log = state.active.logs[key] || (state.active.logs[key] = {});
+      log[prop] = field.value.trim();
+    });
+
     $("#btn-sair-treino").addEventListener("click", exitWorkout);
     $("#btn-finalizar").addEventListener("click", finishWorkout);
     $("#btn-timer-toggle").addEventListener("click", toggleTimer);
@@ -964,6 +1383,35 @@
       online = false;
       updateNetPill();
       refreshModalVideo();
+    });
+
+    $("#btn-export").addEventListener("click", exportData);
+    $("#btn-import").addEventListener("click", function () { $("#import-file").click(); });
+    $("#btn-backup-side").addEventListener("click", openBackupModal);
+    $("#import-file").addEventListener("change", function () {
+      importBackup(this.files && this.files[0]);
+      this.value = "";
+    });
+
+    $$("[data-install-app]").forEach(function (btn) {
+      btn.addEventListener("click", function () {
+        if (!installPrompt) return;
+        installPrompt.prompt();
+        installPrompt.userChoice.then(function () {
+          installPrompt = null;
+          updateInstallButtons();
+        });
+      });
+    });
+
+    [["#alert-sound", "sound"], ["#alert-vibration", "vibration"]].forEach(function (pair) {
+      const el = $(pair[0]);
+      if (!el) return;
+      el.addEventListener("change", function () {
+        state.settings[pair[1]] = this.checked;
+        save(KEYS.settings, state.settings);
+        if (pair[1] === "sound" && this.checked) ensureAudio();
+      });
     });
   }
 
@@ -996,7 +1444,10 @@
     $("#today-date").textContent = new Intl.DateTimeFormat("pt-BR", { weekday: "long", day: "numeric", month: "long" }).format(now);
     if (state.routine) fillForm(state.routine.profile);
     bindEvents();
+    syncSettingsUI();
     updateNetPill();
+    updateInstallButtons();
+    registerPWA();
     renderAll();
     showView("inicio");
   }
