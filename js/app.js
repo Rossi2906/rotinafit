@@ -145,6 +145,7 @@
   function showView(view) {
     if (view === "treino" && !state.active) view = "inicio";
     state.view = view;
+    document.body.classList.toggle("workout-active", view === "treino");
     $$(".view").forEach(function (el) { el.classList.toggle("active", el.id === "view-" + view); });
     $$(".nav-item").forEach(function (el) {
       el.classList.toggle("active", el.dataset.view === view);
@@ -1388,6 +1389,7 @@
     $("#btn-export").addEventListener("click", exportData);
     $("#btn-import").addEventListener("click", function () { $("#import-file").click(); });
     $("#btn-backup-side").addEventListener("click", openBackupModal);
+    $("#btn-backup-top").addEventListener("click", openBackupModal);
     $("#import-file").addEventListener("change", function () {
       importBackup(this.files && this.files[0]);
       this.value = "";

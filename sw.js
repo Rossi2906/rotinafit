@@ -1,5 +1,5 @@
 /* RotinaFit — service worker para funcionar offline e ser instalável. */
-const CACHE = "rotinafit-v1";
+const CACHE = "rotinafit-v2";
 const SHELL = [
   "./",
   "./index.html",
