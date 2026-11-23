@@ -60,7 +60,10 @@ Ao abrir o site uma primeira vez com internet, o service worker (`sw.js`) guarda
 ├── index.html          # interface (telas, formulário, playlist e modais)
 ├── css/styles.css      # layout, tema escuro, player de vídeo e responsividade
 ├── js/data.js          # exercícios, IDs dos vídeos, divisões e regras de séries
-├── js/app.js           # geração da rotina, playlist, treino, vídeos e persistência
+├── js/app.js           # geração/edição da rotina, playlist, treino, carga, backup e persistência
+├── sw.js               # service worker: guarda o app para uso offline
+├── manifest.webmanifest # metadados de instalação (PWA)
+├── icons/              # ícones 192px e 512px para a tela inicial
 └── README.md
 ```
 
